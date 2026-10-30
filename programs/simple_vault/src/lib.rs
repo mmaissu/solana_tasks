@@ -4,7 +4,7 @@ use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer}
 pub mod instructions;
 use instructions::*;
 
-declare_id!("EbojNUfh9Jk6dyZaaQAJWofbdnkvdxfQbeAPq6iWoHAu");
+declare_id!("25exdZUmhe6Xah5wxHrXf1w851F3Da36tb4W2E6fG6L4");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Program entry points
@@ -25,8 +25,32 @@ pub mod simple_vault {
         vault.total_tokens = 0;
         vault.total_shares = 0;
         vault.bump = ctx.bumps.vault_state;
+        vault.paused = false;
 
         msg!("Vault initialized for mint: {}", vault.token_mint);
+        Ok(())
+    }
+    //Задание 1 3
+    /// Создать личную карточку пользователя в vault.
+    pub fn create_user_card(ctx: Context<CreateUserCard>) -> Result<()> {
+        require!(!ctx.accounts.vault_state.paused, VaultError::VaultPaused);
+        let card = &mut ctx.accounts.user_card;
+        card.vault = ctx.accounts.vault_state.key();
+        card.owner = ctx.accounts.user.key();
+        card.created_at = Clock::get()?.unix_timestamp;
+        card.bump = ctx.bumps.user_card;
+        Ok(())
+    }
+    //Задание 2
+    /// Закрыть карточку пользователя, рента возвращается владельцу.
+    pub fn close_user_card(_ctx: Context<CloseUserCard>) -> Result<()> {
+        Ok(())
+    }
+
+    //Задание 3
+    /// Админ ставит vault на паузу или снимает её.
+    pub fn set_paused(ctx: Context<SetPaused>, paused: bool) -> Result<()> {
+        ctx.accounts.vault_state.paused = paused;
         Ok(())
     }
 
@@ -89,6 +113,11 @@ pub mod simple_vault {
         vault.total_tokens = vault.total_tokens.checked_add(amount).ok_or(VaultError::MathOverflow)?;
         vault.total_shares = vault.total_shares.checked_add(shares).ok_or(VaultError::MathOverflow)?;
 
+        
+        let card = &mut ctx.accounts.user_card;
+        card.deposited = card.deposited.checked_add(amount).ok_or(VaultError::MathOverflow)?;
+        card.shares = card.shares.checked_add(shares).ok_or(VaultError::MathOverflow)?;
+
         msg!(
             "Deposit: {} tokens → {} shares (total_tokens={}, total_shares={})",
             amount, shares, vault.total_tokens, vault.total_shares
@@ -149,6 +178,10 @@ pub mod simple_vault {
         let vault = &mut ctx.accounts.vault_state;
         vault.total_tokens = vault.total_tokens.checked_sub(tokens_out).ok_or(VaultError::MathOverflow)?;
         vault.total_shares = vault.total_shares.checked_sub(shares_amount).ok_or(VaultError::MathOverflow)?;
+        
+        let card = &mut ctx.accounts.user_card;
+        card.shares = card.shares.saturating_sub(shares_amount);
+
 
         msg!(
             "Withdraw: {} shares → {} tokens (total_tokens={}, total_shares={})",
@@ -206,7 +239,8 @@ pub struct InitializeVault<'info> {
         space = VaultState::LEN,
         seeds = [b"vault", token_mint.key().as_ref()],
         bump,
-    )]
+ )]
+    
     pub vault_state: Account<'info, VaultState>,
 
     /// Token account, принадлежащий vault PDA — хранит депозиты пользователей
@@ -250,6 +284,15 @@ pub struct Deposit<'info> {
         bump = vault_state.bump,
     )]
     pub vault_state: Account<'info, VaultState>,
+
+    
+    #[account(
+        mut,
+        seeds = [b"user_card", vault_state.key().as_ref(), user.key().as_ref()],
+        bump = user_card.bump,
+        constraint = user_card.owner == user.key()
+    )]
+    pub user_card: Account<'info, UserCard>,
 
     /// Vault token account — принимает токены
     #[account(
@@ -300,6 +343,14 @@ pub struct Withdraw<'info> {
         bump = vault_state.bump,
     )]
     pub vault_state: Account<'info, VaultState>,
+    
+    #[account(
+        mut,
+        seeds = [b"user_card", vault_state.key().as_ref(), user.key().as_ref()],
+        bump = user_card.bump,
+        constraint = user_card.owner == user.key()
+    )]
+    pub user_card: Account<'info, UserCard>,
 
     /// Vault token account — отправляет токены пользователю
     #[account(
@@ -341,6 +392,64 @@ pub struct Withdraw<'info> {
 
     pub token_program: Program<'info, Token>,
 }
+#[derive(Accounts)]
+pub struct CreateUserCard<'info> {
+    #[account(
+        seeds = [b"vault", vault_state.token_mint.as_ref()],
+        bump = vault_state.bump,
+    )]
+    pub vault_state: Account<'info, VaultState>,
+
+    #[account(
+        init,
+        payer = user,
+        space = UserCard::LEN,
+        seeds = [b"user_card", vault_state.key().as_ref(), user.key().as_ref()],
+        bump,
+    )]
+    pub user_card: Account<'info, UserCard>,
+
+    #[account(mut)]
+    pub user: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+// Задание 2
+#[derive(Accounts)]
+pub struct CloseUserCard<'info> {
+    #[account(
+        seeds = [b"vault", vault_state.token_mint.as_ref()],
+        bump = vault_state.bump,
+    )]
+    pub vault_state: Account<'info, VaultState>,
+
+
+    #[account(
+        mut,
+        close = user,
+        seeds = [b"user_card", vault_state.key().as_ref(), user.key().as_ref()],
+        bump = user_card.bump,
+        constraint = user_card.owner == user.key(),
+        constraint = user_card.shares == 0 @ VaultError::CardHasShares
+    )]
+    pub user_card: Account<'info, UserCard>,
+
+    #[account(mut)]
+    pub user: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct SetPaused<'info> {
+    pub admin: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"vault", vault_state.token_mint.as_ref()],
+        bump = vault_state.bump,
+        has_one = admin,
+    )]
+    pub vault_state: Account<'info, VaultState>,
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // State
@@ -356,11 +465,29 @@ pub struct VaultState {
     pub total_tokens: u64,          // 8   — всего токенов в vault
     pub total_shares: u64,          // 8   — всего выпущенных shares
     pub bump: u8,                   // 1   — bump vault PDA
+    pub paused: bool,               // 1   — флаг паузы
 }
 
 impl VaultState {
-    pub const LEN: usize = 8 + 32 + 32 + 32 + 32 + 8 + 8 + 1;
+    pub const LEN: usize = 8 + 32 + 32 + 32 + 32 + 8 + 8 + 1 + 1;
 }
+
+//Задание 1
+#[account]
+#[derive(Default)]
+pub struct UserCard {
+    pub vault: Pubkey,   // 32
+    pub owner: Pubkey,   // 32
+    pub created_at: i64, // 8
+    pub deposited: u64,  // 8
+    pub shares: u64,     // 8
+    pub bump: u8,        // 1
+}
+
+impl UserCard {
+    pub const LEN: usize = 8 + 32 + 32 + 8 + 8 + 8 + 1;
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Errors
@@ -382,4 +509,8 @@ pub enum VaultError {
     Unauthorized,
     #[msg("tick_lower must be less than tick_upper")]
     InvalidTickRange,
+    #[msg("Vault is paused")]
+    VaultPaused,
+    #[msg("Card still has shares: withdraw first")]
+    CardHasShares,
 }

@@ -1,160 +1,27 @@
-# Simple Vault — практика Anchor
+Solana Liquidity Vault — Неделя 10 (Вывод средств и CPI)
 
-Минимальный SPL-токен vault на Anchor 0.31.1.  
-Три инструкции: `initialize_vault` → `deposit` → `withdraw`.
 
----
+## Что было сделано 
 
-## Что делает контракт
+1. **Доработка инструкций вывода и защиты данных:**
+* В логику `withdraw` внедрено корректное обновление пользовательской карточки (`user_card`): теперь при выводе уменьшается количество долей (`shares`) с помощью безопасной операции `saturating_sub`. При этом показатель `deposited` остаётся неизменным, выступая в роли исторической статистики всех вложенных средств.
+* Установлен строгий запрет на удаление активных счетов: инструкция `CloseUserCard` теперь проверяет, что на балансе карточки не осталось долей (`shares == 0`). Если пользователь попытается закрыть её раньше времени, контракт вернёт ошибку `CardHasShares`.
 
-```
-initialize_vault   создаёт VaultState PDA, vault token account, share mint
-deposit(amount)    переводит токены в vault → минтит shares пользователю
-withdraw(shares)   сжигает shares → возвращает токены пользователю
-```
 
-**Формула shares:**
-```
-Первый депозит:       shares = amount          (1:1)
-Последующие:          shares = amount × total_shares / total_tokens
-Вывод:                tokens = shares × total_tokens / total_shares
-```
+2. **Интеграция кросс-программных вызовов (CPI) и тестов:**
+* Реализована связка с Token Program через CPI: операция `Burn` (сжигание share-токенов под контролем подписи юзера) и операция `Transfer` (перевод базовых активов из хранилища пользователю по сидам PDA с помощью `CpiContext::new_with_signer`).
+* Набор интеграционных тестов на TypeScript был расширен и теперь успешно проходит **18 тестов**. Проверены краевые случаи: попытка нулевого вывода, снятие средств сверх доступного баланса, защита от закрытия непустых карточек и полноценный сценарий вывода с последующим удалением карточки.
+
+
+* **Прямая ссылка на транзакцию:** (https://explorer.solana.com/tx/ZhFQ7yaqHxj5Si5ZPbin8NE3z4jBErgiuzNNfEMim6MEoPua82uckxm67SwC9W7A7kWryUwCPLU5gZWe3Ldavrp?cluster=devnet)
 
 ---
 
-## Предварительные требования
+## Ответы на вопросы
 
-| Инструмент | Версия | Установка |
-|---|---|---|
-| Rust | stable | https://rustup.rs |
-| Solana CLI | 1.18+ | https://docs.solana.com/cli/install-solana-cli-tools |
-| Anchor CLI | 0.31.1 | `cargo install --git https://github.com/coral-xyz/anchor avm --locked && avm install 0.31.1 && avm use 0.31.1` |
-| Node.js | 18+ | https://nodejs.org |
-| Yarn | any | `npm i -g yarn` |
-
----
-
-## Быстрый старт
-
-### 1. Установить зависимости
-
-```bash
-cd vault-simple
-yarn install
-```
-
-### 2. Сбилдить контракт
-
-```bash
-anchor build
-```
-
-Артефакты появятся в `target/deploy/`:
-- `simple_vault.so` — скомпилированная программа
-- `simple_vault-keypair.json` — keypair программы
-
-### 3. Получить Program ID
-
-```bash
-anchor keys list
-# simple_vault: EbojNUfh9Jk6dyZaaQAJWofbdnkvdxfQbeAPq6iWoHAu
-```
-
-Если создаёшь **с нуля** (новый keypair):
-```bash
-# после первого anchor build:
-anchor keys sync    # обновит declare_id! в lib.rs и Anchor.toml автоматически
-anchor build        # пересобрать с новым ID
-```
-
-### 4. Получить devnet SOL
-
-```bash
-solana config set --url devnet
-solana address                  # покажет твой адрес
-solana airdrop 2                # или через https://faucet.solana.com
-solana balance
-```
-
-> Для деплоя нужно **~2.5 SOL** на devnet.
-
-### 5. Задеплоить на devnet
-
-```bash
-anchor deploy --provider.cluster devnet
-```
-
-Успешный вывод:
-```
-Program Id: EbojNUfh9Jk6dyZaaQAJWofbdnkvdxfQbeAPq6iWoHAu
-Deploy success
-```
-
-### 6. Запустить тесты
-
-```bash
-anchor test --provider.cluster devnet --skip-local-validator
-```
-
----
-
-## Структура проекта
-
-```
-vault-simple/
-├── Anchor.toml                  # конфиг: cluster=devnet, program ID
-├── Cargo.toml                   # workspace
-├── package.json
-├── tsconfig.json
-├── programs/
-│   └── simple_vault/
-│       ├── Cargo.toml
-│       └── src/
-│           └── lib.rs           # весь контракт (инструкции + аккаунты + ошибки)
-└── tests/
-    └── vault.ts                 # TypeScript тесты (два пользователя)
-```
-
----
-
-## Тест-сценарий
-
-Тесты (`tests/vault.ts`) покрывают:
-
-1. **initialize_vault** — vault создан, `total_tokens=0`, `total_shares=0`
-2. **UserA deposit 100** — получает 100 shares (1:1, первый депозит)
-3. **UserB deposit 50** — получает 50 shares, соотношение A/B = 66.7%/33.3%
-4. **UserA withdraw 50 shares** — получает 50 токенов обратно
-5. **Итог** — UserA и UserB по 50 shares (50%/50%), on-chain баланс совпадает с vault state
-
----
-
-## PDAs (Seeds)
-
-| PDA | Seeds |
-|---|---|
-| `vault_state` | `["vault", token_mint]` |
-| `vault_token_account` | `["vault_tokens", token_mint]` |
-| `share_mint` | `["share_mint", token_mint]` |
-
----
-
-## Возможные ошибки
-
-| Ошибка | Причина |
-|---|---|
-| `insufficient funds` при деплое | Нужно больше SOL → `solana airdrop` или https://faucet.solana.com |
-| `AccountNotInitialized` в тестах | Забыл задеплоить или указан неверный cluster |
-| `ZeroAmount` | Передан `amount = 0` |
-| `SharesTooSmall` | Депозит слишком мал относительно TVL vault |
-
----
-
-## Задание для практики
-
-Реализовать самостоятельно или изменить:
-
-- [ ] Добавить **комиссию 1%** при депозите (переводить на `fee_wallet`)
-- [ ] Добавить **паузу** (`is_paused: bool`) — admin может остановить депозиты
-- [ ] Добавить **минимальный депозит** (например, ≥ 1 токен)
-- [ ] Написать тест: **три пользователя** делают deposit → все выводят → vault пуст
+* **Что такое CPI и зачем он нужен?**
+Cross-Program Invocation — это механизм, позволяющий одной программе вызывать другую. Это фундаментальная вещь для модульности в Solana: смарт-контракты могут напрямую взаимодействовать со стандартной Token Program или другими внешними DeFi-протоколами, избегая дублирования стандартной логики.
+* **В каких случаях подпись ставит юзер, а в каких — программа?**
+Пользователь подписывает те действия, которые затрагивают его персональные активы (например, внесение депозита или сжигание долей). Программа же задействует программные подписи через PDA (Program Derived Address) в ситуациях, когда актив принадлежит системному контракту, у которого нет закрытого ключа.
+* **Почему у создателя ваута нет возможности просто так забрать оттуда чужие средства?**
+Логика хранилища изначально спроектирована как децентрализованный пул: активы распределены между участниками строго пропорционально их долям (`share-токенам`). У администратора нет привилегий на вывод чужих денег, так как код контракта просто не предусматривает возможность подписать такую операцию от имени PDA вне строго регламентированных правил.

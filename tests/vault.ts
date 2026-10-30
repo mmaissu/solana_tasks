@@ -180,6 +180,134 @@ describe("simple_vault", () => {
     console.log(`  ✓ VaultState.totalTokens = 0, totalShares = 0`);
   });
 
+    // ─────────────────────────────────────────────────────────────────────────
+  // UserCard + paused (задания практики)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const cardPDA = (user: PublicKey) =>
+    PublicKey.findProgramAddressSync(
+      [Buffer.from("user_card"), vaultStatePDA.toBuffer(), user.toBuffer()],
+      program.programId
+    )[0];
+
+  const createCard = (user: Keypair) =>
+    program.methods
+      .createUserCard()
+      .accountsPartial({
+        vaultState: vaultStatePDA,
+        userCard: cardPDA(user.publicKey),
+        user: user.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([user])
+      .rpc();
+
+  const closeCard = (user: Keypair, cardOf: PublicKey) =>
+    program.methods
+      .closeUserCard()
+      .accountsPartial({
+        vaultState: vaultStatePDA,
+        userCard: cardPDA(cardOf),
+        user: user.publicKey,
+      })
+      .signers([user])
+      .rpc();
+
+  const setPaused = (signer: Keypair, paused: boolean) =>
+    program.methods
+      .setPaused(paused)
+      .accountsPartial({
+        admin: signer.publicKey,
+        vaultState: vaultStatePDA,
+      })
+      .signers([signer])
+      .rpc();
+
+  const expectFail = async (p: Promise<unknown>, text?: string) => {
+    let err: any = null;
+    try {
+      await p;
+    } catch (e) {
+      err = e;
+    }
+    assert.isNotNull(err, "ожидалась ошибка");
+    if (text) assert.include(String(err), text);
+  };
+
+  // ─── Задание 1: created_at ─────────────────────────────────────────────────
+  it("create_user_card: карточка создаётся, created_at заполнен", async () => {
+    await createCard(userA);
+
+    const card = await program.account.userCard.fetch(cardPDA(userA.publicKey));
+    assert.equal(card.owner.toBase58(), userA.publicKey.toBase58());
+    assert.equal(card.vault.toBase58(), vaultStatePDA.toBase58());
+    assert.ok(card.createdAt.toNumber() > 0, "created_at должен быть > 0");
+  });
+
+  it("create_user_card: вторая карточка того же пользователя — ошибка", async () => {
+    await expectFail(createCard(userA));
+  });
+
+  // ─── Задание 2: close_user_card ────────────────────────────────────────────
+  it("close_user_card: чужую карточку закрыть нельзя", async () => {
+    await expectFail(closeCard(userB, userA.publicKey));
+  });
+
+  it("close_user_card: владелец закрывает карточку и получает ренту", async () => {
+    const before = await connection.getBalance(userA.publicKey);
+    await closeCard(userA, userA.publicKey);
+    const after = await connection.getBalance(userA.publicKey);
+
+    const card = await program.account.userCard.fetchNullable(
+      cardPDA(userA.publicKey)
+    );
+    assert.isNull(card, "аккаунт карточки должен быть закрыт");
+    assert.isAbove(after, before, "рента вернулась (с учётом комиссии)");
+  });
+
+  it("deposit: без карточки — ошибка", async () => {
+    await expectFail(
+      program.methods
+        .deposit(new BN(10 * 10 ** TOKEN_DECIMALS))
+        .accountsPartial({
+          vaultState: vaultStatePDA,
+          vaultTokenAccount: vaultTokenAccountPDA,
+          shareMint: shareMintPDA,
+          userTokenAccount: userATokenAccount,
+          userShareAccount: userAShareAccount,
+          userCard: cardPDA(userA.publicKey),
+          user: userA.publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([userA])
+        .rpc()
+    );
+  });
+
+  it("close_user_card: после закрытия карточку можно создать заново", async () => {
+    await createCard(userA);
+    const card = await program.account.userCard.fetch(cardPDA(userA.publicKey));
+    assert.ok(card.createdAt.toNumber() > 0);
+  });
+
+  // ─── Задание 3: paused ─────────────────────────────────────────────────────
+  it("set_paused: не админ не может включить паузу", async () => {
+    await expectFail(setPaused(userB, true));
+  });
+
+  it("paused: при паузе create_user_card падает, после снятия паузы работает", async () => {
+    await setPaused(admin, true);
+    const vault = await program.account.vaultState.fetch(vaultStatePDA);
+    assert.isTrue(vault.paused);
+
+    await expectFail(createCard(userB), "VaultPaused");
+
+    await setPaused(admin, false);
+    await createCard(userB);
+    const card = await program.account.userCard.fetch(cardPDA(userB.publicKey));
+    assert.equal(card.owner.toBase58(), userB.publicKey.toBase58());
+  });
+
   // ─── 2. UserA deposit 100 ──────────────────────────────────────────────────
   it("deposit: UserA вносит 100 токенов → получает 100 shares (1:1 первый депозит)", async () => {
     const balanceBefore = await tokenBalance(connection, userATokenAccount);
@@ -192,6 +320,7 @@ describe("simple_vault", () => {
         shareMint: shareMintPDA,
         userTokenAccount: userATokenAccount,
         userShareAccount: userAShareAccount,
+        userCard: cardPDA(userA.publicKey),
         user: userA.publicKey,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
@@ -214,9 +343,14 @@ describe("simple_vault", () => {
     assert.equal(vault.totalShares.toString(), DEPOSIT_A.toString());
     assert.equal(balanceBefore - balanceAfter, BigInt(DEPOSIT_A.toString()));
 
+    const cardA = await program.account.userCard.fetch(cardPDA(userA.publicKey));
+    assert.equal(cardA.deposited.toString(), DEPOSIT_A.toString());
+    assert.equal(cardA.shares.toString(), DEPOSIT_A.toString());
+
     console.log(`  ✓ shares = tokens (первый депозит 1:1)`);
   });
 
+  
   // ─── 3. UserB deposit 50 ───────────────────────────────────────────────────
   it("deposit: UserB вносит 50 токенов → получает 50 shares (соотношение сохраняется)", async () => {
     const tx = await program.methods
@@ -227,6 +361,7 @@ describe("simple_vault", () => {
         shareMint: shareMintPDA,
         userTokenAccount: userBTokenAccount,
         userShareAccount: userBShareAccount,
+        userCard: cardPDA(userB.publicKey),
         user: userB.publicKey,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
@@ -248,6 +383,10 @@ describe("simple_vault", () => {
     assert.equal(vault.totalTokens.toString(), DEPOSIT_A.add(DEPOSIT_B).toString());
     assert.equal(vault.totalShares.toString(), DEPOSIT_A.add(DEPOSIT_B).toString());
 
+    const cardB = await program.account.userCard.fetch(cardPDA(userB.publicKey));
+    assert.equal(cardB.deposited.toString(), DEPOSIT_B.toString());
+    assert.equal(cardB.shares.toString(), DEPOSIT_B.toString());
+
     // UserA владеет 100/150 = 66.7% vault, UserB — 50/150 = 33.3%
     const sharesA = await tokenBalance(connection, userAShareAccount);
     const total = BigInt(vault.totalShares.toString());
@@ -256,6 +395,26 @@ describe("simple_vault", () => {
       `UserB доля: ${Number(sharesBofB) / Number(total) * 100}%`
     );
     console.log(`  ✓ Доли корректны: A=${sharesA}, B=${sharesBofB}, total=${total}`);
+  });
+
+    it("deposit: сумма 0 — ошибка", async () => {
+    await expectFail(
+      program.methods
+        .deposit(new BN(0))
+        .accountsPartial({
+          vaultState: vaultStatePDA,
+          vaultTokenAccount: vaultTokenAccountPDA,
+          shareMint: shareMintPDA,
+          userTokenAccount: userATokenAccount,
+          userShareAccount: userAShareAccount,
+          userCard: cardPDA(userA.publicKey),
+          user: userA.publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([userA])
+        .rpc(),
+      "ZeroAmount"
+    );
   });
 
   // ─── 4. UserA withdraw половина shares ─────────────────────────────────────
@@ -274,6 +433,7 @@ describe("simple_vault", () => {
         userTokenAccount: userATokenAccount,
         userShareAccount: userAShareAccount,
         user: userA.publicKey,
+        userCard: cardPDA(userA.publicKey),
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .signers([userA])
@@ -293,6 +453,9 @@ describe("simple_vault", () => {
     // UserA вывел 50 из 150 tokens = 50 токенов
     assert.equal(tokensReceived.toString(), halfShares.toString());
     assert.equal(sharesAAfter.toString(), halfShares.toString()); // осталось 50 shares
+    const cardA = await program.account.userCard.fetch(cardPDA(userA.publicKey));
+    assert.equal(cardA.shares.toString(), halfShares.toString());
+    assert.equal(cardA.deposited.toString(), DEPOSIT_A.toString());
 
     console.log(`  ✓ Вывод корректен: получено ${tokensReceived} токенов за ${halfShares} shares`);
   });
@@ -326,4 +489,54 @@ describe("simple_vault", () => {
     console.log(`  ✓ UserA = UserB = 50% vault`);
     console.log(`  ✓ on-chain баланс совпадает с vault state`);
   });
+  
+  
+  // ─── Неделя 10: вывод ──────────────────────────────────────────────────────
+  const withdrawAs = (user: Keypair, shareAcc: PublicKey, tokenAcc: PublicKey, amount: BN) =>
+    program.methods
+      .withdraw(amount)
+      .accountsPartial({
+        vaultState: vaultStatePDA,
+        vaultTokenAccount: vaultTokenAccountPDA,
+        shareMint: shareMintPDA,
+        userTokenAccount: tokenAcc,
+        userShareAccount: shareAcc,
+        userCard: cardPDA(user.publicKey),
+        user: user.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([user])
+      .rpc();
+
+  it("withdraw: сумма 0 — ошибка ZeroAmount", async () => {
+    await expectFail(
+      withdrawAs(userA, userAShareAccount, userATokenAccount, new BN(0)),
+      "ZeroAmount"
+    );
+  });
+
+  it("withdraw: больше, чем есть shares — ошибка", async () => {
+    await expectFail(
+      withdrawAs(userA, userAShareAccount, userATokenAccount, new BN(60 * 10 ** TOKEN_DECIMALS))
+    );
+  });
+
+  it("close_user_card: пока на карточке есть shares — ошибка", async () => {
+    await expectFail(closeCard(userA, userA.publicKey), "CardHasShares");
+  });
+
+  it("withdraw: UserB выводит все shares, после этого карточку можно закрыть", async () => {
+    const sharesB = await tokenBalance(connection, userBShareAccount);
+    await withdrawAs(userB, userBShareAccount, userBTokenAccount, new BN(sharesB.toString()));
+
+    const vault = await program.account.vaultState.fetch(vaultStatePDA);
+    assert.equal(vault.totalShares.toString(), "50000000");
+
+    const card = await program.account.userCard.fetch(cardPDA(userB.publicKey));
+    assert.equal(card.shares.toString(), "0");
+
+    await closeCard(userB, userB.publicKey);
+    assert.isNull(await program.account.userCard.fetchNullable(cardPDA(userB.publicKey)));
+  });
+  
 });
