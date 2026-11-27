@@ -1,0 +1,62 @@
+[
+  {
+    "action": "collect",
+    "time": "2026-11-19T17:24:25.512Z",
+    "nftMint": "5fAvqJXue4JeFjNJ4UzD7xtYFHPsgL417rCrdJLhZtBk",
+    "range": [
+      "89.1358",
+      "108.9437"
+    ],
+    "priceTkbPerTka": "99.0332",
+    "receivedTka": "0.000549",
+    "receivedTkb": "0.054045",
+    "tx": "5xNW7TrGq3o27jU65pkhbegxEztg2oHHogtXHokfe8qPWZPG2m6CyWohKcpyC8U8HUPqHB5PEa52pxwshjUMyy8p"
+  },
+  {
+    "action": "close",
+    "time": "2026-11-19T17:26:29.112Z",
+    "nftMint": "5fAvqJXue4JeFjNJ4UzD7xtYFHPsgL417rCrdJLhZtBk",
+    "range": [
+      "89.1358",
+      "108.9437"
+    ],
+    "priceTkbPerTka": "99.0332",
+    "receivedTka": "0.931082",
+    "receivedTkb": "97.220172",
+    "mins": {
+      "min0": "96247970",
+      "min1": "921771"
+    },
+    "tx": "58eesJijbPGrS4zVyzmimHRX2NvAFFTyZVxx5Yh38LQqUQuecz4FMiFbLFtDpA6pRY1yYezegq8eEXuNYJfPmsQ6"
+  },
+  {
+    "action": "collect",
+    "time": "2026-11-19T18:56:36.298Z",
+    "nftMint": "8nZ4jjckhbZ7hEb87mExFMgeXzYGadaN4oWqKFcA7hQG",
+    "range": [
+      "89.1299",
+      "108.9366"
+    ],
+    "priceTkbPerTka": "109.5289",
+    "receivedTka": "0",
+    "receivedTkb": "0.203812",
+    "tx": "31cr95dU8ThNmPPXNM7rzinqPQH7fcETC9CDWVDorNFG9qYWaetRo3uZE3JH1QMmBWbKb3NR398czeXtf5mbGXg7"
+  },
+  {
+    "action": "close",
+    "time": "2026-11-19T18:57:33.128Z",
+    "nftMint": "8nZ4jjckhbZ7hEb87mExFMgeXzYGadaN4oWqKFcA7hQG",
+    "range": [
+      "89.1299",
+      "108.9366"
+    ],
+    "priceTkbPerTka": "109.5289",
+    "receivedTka": "0",
+    "receivedTkb": "194.085435",
+    "mins": {
+      "min0": "192144581",
+      "min1": "0"
+    },
+    "tx": "2VVpavfp65yKXJQQoobFWrZHmMcDph7iq91UzWZvDFMTDJj17r9ZpxJ9prRuBe6kZXo1svkYHSAR6bXcibzzGeB2"
+  }
+]

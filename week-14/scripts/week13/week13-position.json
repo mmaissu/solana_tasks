@@ -1,0 +1,20 @@
+{
+  "pool": "5Bpew1UyKwP9YcZNxS4XhouCc5inW4ooF7MeCRYSZwZp",
+  "nftMint": "9Ywov2racVdK61fjAGixr9k93Rk5wgc1DUurVdacKc8E",
+  "positionNftAccount": "6SuZeUDHCQ7qMuxntePBjgiUKhBBpQRrYYcJ2kSnYfXg",
+  "personalPosition": "3g8CTnXY5gPiRHGEr2cLvuUG94eptgM9KM61a35uyFYN",
+  "protocolPosition": "NQq4D4Qtvkx48Q9r1MVP4ucXhcqN2aRqJVfYu7SUiCP",
+  "tickLower": -47940,
+  "tickUpper": -45960,
+  "tickArrayLower": "Fu772ytQaFiX8pNHfevLiJcgqDsRZkJW2GhmtAhJAxUo",
+  "tickArrayUpper": "7vbpdwgBhsTac654o5L8ET9Jh3qNgLEwftAmbiTeCMd6",
+  "rangeTkbPerTka": [
+    "98.5760",
+    "120.4818"
+  ],
+  "priceAtOpen": "109.5289",
+  "liquidity": "375319359",
+  "depositedTka": "1.707582",
+  "depositedTkb": "192.348951",
+  "openTx": "2giXAfbHBHrr9E9kLTAWQQgVLXDTs1SJQ5VmJVQ9mG4jzwYQbYKpF4hk4bApNzbWYp61xggrUBB7ev1mCAYqXrnb"
+}
